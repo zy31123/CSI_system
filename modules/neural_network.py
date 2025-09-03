@@ -179,7 +179,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
                 flattened = amplitude_data.flatten()
                 input_data.append(flattened)
             except Exception as e:
-                print(f"Error preparing input data: {e}")
+                # print(f"Error preparing input data: {e}")
                 # Add zero array as fallback
                 input_data.append(np.zeros(114 * 3 * 2))  # Adjust size as needed
         

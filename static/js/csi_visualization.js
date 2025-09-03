@@ -4,10 +4,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const startTime = new Date();
     
     // 配置参数
-    let MAX_DATA_POINTS = 100;
+    let MAX_DATA_POINTS = 500;
     let dataPointCount = 0;
     let isRunning = true;
-    let autoScale = true;
+    let autoScale = false;
     let selectedSubcarrier = 0;
     let selectedRxAntenna = 0;
     let selectedTxAntenna = 0;
@@ -328,7 +328,7 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('收到CSI数据:', {
                 timestamp: data.timestamp,
                 type: data.type,
-                has_filtered_amplitude: !!data.filtered_amplitude,
+                has_amplitude_data: !!data.amplitude_data,
                 has_phase_data: !!data.phase_data,
                 has_subcarrier_data: !!data.subcarrier_data,
                 has_classification: !!data.classification
@@ -354,93 +354,25 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // 从完整数据中提取当前选择的天线和子载波的数据
             let currentAmplitude, currentPhase;
-            
-            // 如果有filtered_amplitude数据，从中提取当前选择的子载波和天线数据
-            if (data.filtered_amplitude && Array.isArray(data.filtered_amplitude) && 
-                data.filtered_amplitude.length > selectedRxAntenna &&
-                data.filtered_amplitude[selectedRxAntenna].length > selectedTxAntenna && 
-                data.filtered_amplitude[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-                
-                currentAmplitude = data.filtered_amplitude[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
-                console.log(`从filtered_amplitude提取的幅值: ${currentAmplitude}`);
-            }
-            // 如果有csi_data，从中计算幅值
-            else if (data.csi_data) {
-                try {
-                    // Convert CSI data to array if it's a string
-                    let csiData = Array.isArray(data.csi_data) ? data.csi_data : JSON.parse(data.csi_data);
-                    
-                    // Check if we have valid CSI data for the selected antenna and subcarrier
-                    if (csiData.length > selectedRxAntenna && 
-                        csiData[selectedRxAntenna].length > selectedTxAntenna &&
-                        csiData[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-                        
-                        // Get real and imaginary parts
-                        let real = csiData[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier][0];
-                        let imag = csiData[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier][1];
-                        
-                        // Calculate amplitude and phase
-                        currentAmplitude = Math.sqrt(real * real + imag * imag);
-                        currentPhase = Math.atan2(imag, real);
-                        
-                        console.log(`从CSI数据计算的幅值: ${currentAmplitude}, 相位: ${currentPhase}`);
-                    }
-                } catch (e) {
-                    console.error("处理CSI数据时出错:", e);
-                }
-            }
-            // 如果有完整的幅值数据，从中提取当前选择的子载波和天线数据
-            else if (data.magnitude_data && Array.isArray(data.magnitude_data) && 
-                data.magnitude_data.length > selectedRxAntenna &&
-                data.magnitude_data[selectedRxAntenna].length > selectedTxAntenna && 
-                data.magnitude_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-                
-                currentAmplitude = data.magnitude_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
-                console.log(`从magnitude_data提取的幅值: ${currentAmplitude}`);
-            } 
-            // 如果没有完整数据或无法从中提取，则使用单一的amplitude字段
-            else if (data.amplitude !== undefined) {
-                currentAmplitude = data.amplitude;
-                console.log(`使用单一amplitude字段: ${currentAmplitude}`);
+
+            // 如果有amplitude_data数据，从中提取当前选择的子载波和天线数据
+            if (data.amplitude_data && Array.isArray(data.amplitude_data) && 
+                data.amplitude_data.length > selectedRxAntenna &&
+                data.amplitude_data[selectedRxAntenna].length > selectedTxAntenna && 
+                data.amplitude_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
+
+                currentAmplitude = data.amplitude_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
+                console.log(`从amplitude_data提取的幅值: ${currentAmplitude}`);
             }
             
             // 如果有csi_data，从中计算相位
-            if (data.csi_data && !currentPhase) {
-                try {
-                    // Convert CSI data to array if it's a string
-                    let csiData = Array.isArray(data.csi_data) ? data.csi_data : JSON.parse(data.csi_data);
-                    
-                    // Check if we have valid CSI data for the selected antenna and subcarrier
-                    if (csiData.length > selectedRxAntenna && 
-                        csiData[selectedRxAntenna].length > selectedTxAntenna &&
-                        csiData[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-                        
-                        // Get real and imaginary parts
-                        let real = csiData[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier][0];
-                        let imag = csiData[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier][1];
-                        
-                        // Calculate phase
-                        currentPhase = Math.atan2(imag, real);
-                        
-                        console.log(`从CSI数据计算的相位: ${currentPhase}`);
-                    }
-                } catch (e) {
-                    console.error("处理CSI数据时出错:", e);
-                }
-            }
-            // 如果有完整的相位数据，从中提取当前选择的子载波和天线数据
-            else if (data.phase_data && Array.isArray(data.phase_data) && 
+            if (data.phase_data && Array.isArray(data.phase_data) && 
                 data.phase_data.length > selectedRxAntenna && 
                 data.phase_data[selectedRxAntenna].length > selectedTxAntenna &&
                 data.phase_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
                 
                 currentPhase = data.phase_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
                 console.log(`从phase_data提取的相位: ${currentPhase}`);
-            } 
-            // 如果没有完整数据或无法从中提取，则使用单一的phase字段
-            else if (data.phase !== undefined) {
-                currentPhase = data.phase;
-                console.log(`使用单一phase字段: ${currentPhase}`);
             }
             
             // 记录幅值和相位值（不再更新DOM元素，因为它们已被删除）
@@ -602,12 +534,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // 从上次接收的数据中提取当前选择的幅值
         let currentAmplitude, currentPhase;
         
-        if (lastReceivedData.magnitude_data && 
-            lastReceivedData.magnitude_data.length > selectedRxAntenna &&
-            lastReceivedData.magnitude_data[selectedRxAntenna].length > selectedTxAntenna && 
-            lastReceivedData.magnitude_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
+        if (lastReceivedData.amplitude_data && 
+            lastReceivedData.amplitude_data.length > selectedRxAntenna &&
+            lastReceivedData.amplitude_data[selectedRxAntenna].length > selectedTxAntenna && 
+            lastReceivedData.amplitude_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
             
-            currentAmplitude = lastReceivedData.magnitude_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
+            currentAmplitude = lastReceivedData.amplitude_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
         }
         
         if (lastReceivedData.phase_data && 
@@ -619,19 +551,19 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 更新频谱图
-        if (lastReceivedData.subcarrier_data) {
-            const key = `rx${selectedRxAntenna}_tx${selectedTxAntenna}`;
-            if (lastReceivedData.subcarrier_data[key]) {
-                spectrumData.datasets[0].data = lastReceivedData.subcarrier_data[key];
-                spectrumChart.update();
-            }
-        } else if (lastReceivedData.magnitude_data && 
-                   lastReceivedData.magnitude_data.length > selectedRxAntenna &&
-                   lastReceivedData.magnitude_data[selectedRxAntenna].length > selectedTxAntenna) {
+        // if (lastReceivedData.subcarrier_data) {
+        //     const key = `rx${selectedRxAntenna}_tx${selectedTxAntenna}`;
+        //     if (lastReceivedData.subcarrier_data[key]) {
+        //         spectrumData.datasets[0].data = lastReceivedData.subcarrier_data[key];
+        //         spectrumChart.update();
+        //     }
+        // } else if (lastReceivedData.magnitude_data && 
+        //            lastReceivedData.magnitude_data.length > selectedRxAntenna &&
+        //            lastReceivedData.magnitude_data[selectedRxAntenna].length > selectedTxAntenna) {
             
-            spectrumData.datasets[0].data = lastReceivedData.magnitude_data[selectedRxAntenna][selectedTxAntenna];
-            spectrumChart.update();
-        }
+        //     spectrumData.datasets[0].data = lastReceivedData.magnitude_data[selectedRxAntenna][selectedTxAntenna];
+        //     spectrumChart.update();
+        // }
     }
     
     // 事件处理程序
