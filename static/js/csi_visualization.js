@@ -4,10 +4,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const startTime = new Date();
     
     // 配置参数
-    let MAX_DATA_POINTS = 500;
+    let MAX_DATA_POINTS = 100;
     let dataPointCount = 0;
     let isRunning = true;
-    let autoScale = false;
     let selectedSubcarrier = 0;
     let selectedRxAntenna = 0;
     let selectedTxAntenna = 0;
@@ -18,7 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const rxAntennaSelect = document.getElementById('rxAntennaSelect');
     const txAntennaSelect = document.getElementById('txAntennaSelect');
     const displayModeSelect = document.getElementById('displayMode');
-    const autoScaleCheck = document.getElementById('autoScaleCheck');
     const startButton = document.getElementById('startButton');
     const pauseButton = document.getElementById('pauseButton');
     const clearButton = document.getElementById('clearButton');
@@ -172,13 +170,33 @@ document.addEventListener('DOMContentLoaded', function() {
     const amplitudeChart = new Chart(amplitudeCtx, {
         type: 'line',
         data: amplitudeData,
-        options: {...lineChartOptions, scales: {...lineChartOptions.scales, y: {...lineChartOptions.scales.y, title: {display: true, text: '幅值'}}}}
+        options: {...lineChartOptions, 
+            scales: {
+                ...lineChartOptions.scales, 
+                y: {
+                    ...lineChartOptions.scales.y, 
+                    title: {display: true, text: '幅值'},
+                    min: 0,
+                    max: 200
+                }
+            }
+        }
     });
     
     const phaseChart = new Chart(phaseCtx, {
         type: 'line',
         data: phaseData,
-        options: {...lineChartOptions, scales: {...lineChartOptions.scales, y: {...lineChartOptions.scales.y, title: {display: true, text: '相位(弧度)'}}}}
+        options: {...lineChartOptions, 
+            scales: {
+                ...lineChartOptions.scales, 
+                y: {
+                    ...lineChartOptions.scales.y, 
+                    title: {display: true, text: '相位(弧度)'},
+                    min: -Math.PI,
+                    max: Math.PI
+                }
+            }
+        }
     });
     
     // SNR图表已移除
@@ -186,19 +204,48 @@ document.addEventListener('DOMContentLoaded', function() {
     const spectrumChart = new Chart(spectrumCtx, {
         type: 'bar',
         data: spectrumData,
-        options: barChartOptions
+        options: {...barChartOptions,
+            scales: {
+                ...barChartOptions.scales,
+                y: {
+                    ...barChartOptions.scales.y,
+                    min: 0,
+                    max: 100
+                }
+            }
+        }
     });
     
     const packetRateChart = new Chart(packetRateCtx, {
         type: 'line',
         data: packetRateData,
-        options: {...lineChartOptions, scales: {...lineChartOptions.scales, y: {...lineChartOptions.scales.y, title: {display: true, text: '包/秒'}}}}
+        options: {...lineChartOptions, 
+            scales: {
+                ...lineChartOptions.scales, 
+                y: {
+                    ...lineChartOptions.scales.y, 
+                    title: {display: true, text: '包/秒'},
+                    min: 0,
+                    max: 500
+                }
+            }
+        }
     });
     
     const queueLengthChart = new Chart(queueLengthCtx, {
         type: 'line',
         data: queueLengthData,
-        options: {...lineChartOptions, scales: {...lineChartOptions.scales, y: {...lineChartOptions.scales.y, title: {display: true, text: '队列长度'}}}}
+        options: {...lineChartOptions, 
+            scales: {
+                ...lineChartOptions.scales, 
+                y: {
+                    ...lineChartOptions.scales.y, 
+                    title: {display: true, text: '队列长度'},
+                    min: 0,
+                    max: 1000
+                }
+            }
+        }
     });
     
     // 连接Socket.IO
@@ -445,10 +492,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.warn('无法更新频谱图，缺少子载波数据');
             }
             
-            // 如果启用了自动缩放
-            if (autoScale) {
-                autoScaleCharts();
-            }
+            
             
         } catch (error) {
             console.error('处理CSI数据出错:', error);
@@ -489,38 +533,7 @@ document.addEventListener('DOMContentLoaded', function() {
         queueLengthChart.update();
     });
     
-    // 自动缩放图表Y轴
-    function autoScaleCharts() {
-        // 幅值图表自动缩放
-        const amplitudeValues = amplitudeData.datasets[0].data.filter(val => val !== null && val !== undefined);
-        if (amplitudeValues.length > 0) {
-            const maxAmp = Math.max(...amplitudeValues) * 1.1;
-            const minAmp = Math.min(0, ...amplitudeValues) * 0.9;
-            amplitudeChart.options.scales.y.max = maxAmp;
-            amplitudeChart.options.scales.y.min = minAmp;
-            console.log("幅值图自动缩放: min =", minAmp, "max =", maxAmp);
-        }
-        
-        // 相位图表自动缩放，相位范围通常在[-π, π]
-        const phaseValues = phaseData.datasets[0].data.filter(val => val !== null && val !== undefined);
-        if (phaseValues.length > 0) {
-            // 动态计算实际的相位范围
-            const maxPhase = Math.max(...phaseValues) * 1.1;
-            const minPhase = Math.min(...phaseValues) * 1.1;
-            // 确保范围合理，如果相位值很小，至少设置一个合理的范围
-            phaseChart.options.scales.y.min = Math.min(-Math.PI, minPhase);
-            phaseChart.options.scales.y.max = Math.max(Math.PI, maxPhase);
-            console.log("相位图自动缩放: min =", phaseChart.options.scales.y.min, "max =", phaseChart.options.scales.y.max);
-        } else {
-            // 默认范围
-            phaseChart.options.scales.y.min = -Math.PI;
-            phaseChart.options.scales.y.max = Math.PI;
-        }
-        
-        // 触发图表更新
-        amplitudeChart.update('none');
-        phaseChart.update('none');
-    }
+    
     
     // 存储上一次收到的数据以便在切换子载波或天线时重新使用
     let lastReceivedData = null;
@@ -587,10 +600,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     displayModeSelect.addEventListener('change', function() {
         displayMode = this.value;
-    });
-    
-    autoScaleCheck.addEventListener('change', function() {
-        autoScale = this.checked;
     });
     
     dataWindowSizeSelect.addEventListener('change', function() {
