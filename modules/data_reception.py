@@ -135,7 +135,7 @@ class DataReceptionThread(threading.Thread):
                                     
                                 # Print status every 100 packets
                                 if packet_count % 100 == 0:
-                                    print(f"Received {packet_count} packets, queue length: {redis_client.llen(CSI_SOURCE_QUEUE)}")
+                                    print(f"Received {packet_count} packets, queue length: {redis_client.llen(CSI_SOURCE_QUEUE)}, process length: {redis_client.llen(CSI_PROCESSED_QUEUE)}")
                                 data = b""
                             except Exception as e:
                                 # Only log error, continue receiving

@@ -64,7 +64,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
                 queue_length = redis_client.llen(CSI_PROCESSED_QUEUE)
                 
                 # Process data in batches
-                batch_size = 10
+                batch_size = 400
                 if queue_length >= batch_size:
                     # Get a batch of processed data
                     batch_data = []
@@ -76,18 +76,19 @@ class NeuralNetworkInferenceThread(threading.Thread):
                     # Process the batch
                     if batch_data:
                         results = self._process_batch(batch_data)
+                        result = results[-1] if results else None
                         
                         # Publish results to visualization channel for real-time updates
-                        for result in results:
+                        # for result in results:
                             # Format result for visualization
-                            visualization_result = {
-                                'type': 'classification_result',
-                                'timestamp': result['timestamp'],
-                                'classification': self._format_classification(result['prediction']),
-                                'confidence': result['confidence'],
-                                'processing_time': result['processing_time']
-                            }
-                            redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(visualization_result))
+                        visualization_result = {
+                            'type': 'classification_result',
+                            'send_time': result['send_time'],
+                            'classification': self._format_classification(result['prediction']),
+                            'confidence': result['confidence'],
+                            'processing_time': result['processing_time']
+                        }
+                        redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(visualization_result))
                 
                 # Small delay to prevent busy waiting
                 time.sleep(0.1)
@@ -131,7 +132,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
         # Format results
         for i, prediction in enumerate(predictions):
             result = {
-                'timestamp': parsed_data[i]['timestamp'] if i < len(parsed_data) else time.time(),
+                'send_time': parsed_data[i]['send_time'] if i < len(parsed_data) else time.time(),
                 'prediction': prediction.tolist() if hasattr(prediction, 'tolist') else prediction,
                 'confidence': float(np.max(prediction)) if hasattr(prediction, '__getitem__') else 0.0,
                 'processing_time': time.time()

@@ -11,6 +11,8 @@ import numpy as np
 import redis
 from threading import Event
 from collections import deque
+from modules.csi_pre_processing1 import CSIProcessor
+from scipy.signal import detrend
 
 from config import (
     REDIS_HOST, REDIS_PORT, CSI_SOURCE_QUEUE, CSI_PROCESSED_QUEUE, 
@@ -101,22 +103,23 @@ class DataProcessingThread(threading.Thread):
                     
                     if len(current_window) >= window_size / 2:  # At least half window data
                         # Process current window data
-                        processed_window, amp_median, phase_median = self._process_window(current_window)
+                        processed_window = self._process_window(current_window)
                         processed_window = processed_window[0:window_size - overlap_size]  # Exclude overlap part
-                        processed_signal = {
-                            'timestamp': processed_window[0]['timestamp'],
-                            'send_time': processed_window[0]['send_time'],
-                            # 'csi_data': signal['csi_data'],  # Original CSI data
-                            'amplitude_data': amp_median.tolist(),  # Filtered amplitude data
-                            'phase_data': phase_median.tolist(),  # Filtered phase data
-                        }
+                        # processed_signal = {
+                        #     'timestamp': processed_window[0]['timestamp'],
+                        #     'send_time': processed_window[0]['send_time'],
+                        #     # 'csi_data': signal['csi_data'],  # Original CSI data
+                        #     'amplitude_data': amp_median.tolist(),  # Filtered amplitude data
+                        #     'phase_data': phase_median.tolist(),  # Filtered phase data
+                        # }
 
                         # redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(processed_signal))
+                        redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(processed_window[-1]))
 
                         # Push processed data to Redis queue and publish to visualization channel
                         for data in processed_window:
                             redis_client.lpush(CSI_PROCESSED_QUEUE, json.dumps(data))
-                            redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(data))
+                            # redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(data))
                             # redis_client.publish(CSI_VISUALIZATION_CHANNEL, json.dumps(data))
                         
                         # Save latter part as overlap for next batch
@@ -128,7 +131,7 @@ class DataProcessingThread(threading.Thread):
                         process_counter += 1
                 
                 # Small delay to prevent busy waiting
-                time.sleep((window_size - overlap_size)/100)
+                # time.sleep((window_size - overlap_size)/100)
                 
             except Exception as e:
                 print(f"Processing thread error: {e}")
@@ -154,11 +157,17 @@ class DataProcessingThread(threading.Thread):
             print("No valid signal data, skipping processing")
             return processed_data
         
-        csi_maxtrix = self.process_csi_data(np.array(csi_maxtrix)) # Shape: (num_signals, num_rx, num_tx, num_subcarriers, 2)
-        amplitude_data_ = np.sqrt(np.square(csi_maxtrix[:, :, :, :, 0]) + np.square(csi_maxtrix[:, :, :, :, 1]))
-        amp_median = np.median(amplitude_data_, axis=0, keepdims=False)
-        phase_data_ = np.arctan2(csi_maxtrix[:, :, :, :, 1], csi_maxtrix[:, :, :, :, 0])
-        phase_median = np.median(phase_data_, axis=0, keepdims=False)
+        csi_maxtrix = np.array(csi_maxtrix)  # Shape: (num_signals, num_rx, num_tx, num_subcarriers, 2)
+        # processor = CSIProcessor(csi_maxtrix[:,:,:,:56], 0.9, 10, 3, 15)
+
+        # amplitude_data_, phase_data_ = processor.do_process()
+
+
+        amplitude_data_,phase_data_ = self.process_csi_data(csi_maxtrix) # Shape: (num_signals, num_rx, num_tx, num_subcarriers, 2)
+        # amplitude_data_ = np.sqrt(np.square(csi_maxtrix[:, :, :, :, 0]) + np.square(csi_maxtrix[:, :, :, :, 1]))
+        # amp_median = np.median(amplitude_data_, axis=0, keepdims=False)
+        # phase_data_ = np.arctan2(csi_maxtrix[:, :, :, :, 1], csi_maxtrix[:, :, :, :, 0])
+        # phase_median = np.median(phase_data_, axis=0, keepdims=False)
 
         # Apply Hampel filtering to amplitude data
         for i,signal in enumerate(parsed_data):
@@ -182,7 +191,7 @@ class DataProcessingThread(threading.Thread):
                 print(f"Error processing signal: {e}")
                 continue
 
-        return processed_data, amp_median, phase_median
+        return processed_data
 
     def process_csi_data(self,csi_data):
         """
@@ -192,13 +201,15 @@ class DataProcessingThread(threading.Thread):
         - 重构所有天线的相位（基于 r0 为虚拟参考）
         - 输出保持原始结构，不返回 phase_diff
         """
-        processed_csi_data = np.copy(csi_data)
+        # processed_csi_data = np.copy(csi_data)
         N, R, T, M, _ = csi_data.shape
         assert R == 3, "必须是3个接收天线"
         subcarriers_to_process = 56
 
         # 存储最终复数数据
-        final_complex = np.zeros((N, R, T, subcarriers_to_process), dtype=complex)
+        # final_complex = np.zeros((N, R, T, subcarriers_to_process), dtype=complex)
+        amplitude_data = np.zeros((N, R, T, subcarriers_to_process))
+        phase_data = np.zeros((N, R, T, subcarriers_to_process))
 
         # 天线索引
         r0, r1, r2 = 0, 1, 2
@@ -213,11 +224,11 @@ class DataProcessingThread(threading.Thread):
                 csi_complex = csi_slice[..., 0] + 1j * csi_slice[..., 1]
                 amp = np.abs(csi_complex)
 
-                # ref_subcarrier_idx = 28  # 选择第29个子载波作为参考
-                # ref_csi = amp[:, ref_subcarrier_idx:ref_subcarrier_idx+1]  # (N, R*T, 1)
-                # ref_csi = np.where(ref_csi == 0, 1e-6, ref_csi)
+                ref_subcarrier_idx = 28  # 选择第29个子载波作为参考
+                ref_csi = amp[:, ref_subcarrier_idx:ref_subcarrier_idx+1]  # (N, R*T, 1)
+                ref_csi = np.where(ref_csi == 0, 1e-6, ref_csi)
                 
-                # amp = amp / (ref_csi + 1e-6)  # (N, R*T, K)
+                amp = amp / (ref_csi + 1e-6)  # (N, R*T, K)
 
                 # ref_subcarrier_idx = 28
                 # # 添加安全检查，避免除以零或极小值
@@ -232,7 +243,7 @@ class DataProcessingThread(threading.Thread):
                 #     amp[:,i] = amp[:,i] / amp[:,28]
 
                 pha = np.angle(csi_complex)
-                # pha = np.unwrap(pha, axis=0)
+                pha = np.unwrap(pha, axis=0)
                 # pha_detrended = detrend(pha_unwrapped, axis=0, type='linear')
                 amps[idx] = amp
                 phases[idx] = pha
@@ -244,14 +255,14 @@ class DataProcessingThread(threading.Thread):
             phi_r2_recon = phases[r2] - phases[r0]
 
             # 可选：对差分相位再次解缠（提高连续性）
-            # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
-            # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
-            # phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
+            phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
+            phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
+            phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
 
             # # # # 去线性趋势
-            # phi_r0_recon = detrend(phi_r0_recon, axis=0, type='linear')
-            # phi_r1_recon = detrend(phi_r1_recon, axis=0, type='linear')
-            # phi_r2_recon = detrend(phi_r2_recon, axis=0, type='linear')
+            phi_r0_recon = detrend(phi_r0_recon, axis=0, type='linear')
+            phi_r1_recon = detrend(phi_r1_recon, axis=0, type='linear')
+            phi_r2_recon = detrend(phi_r2_recon, axis=0, type='linear')
 
             # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
             # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
@@ -264,21 +275,23 @@ class DataProcessingThread(threading.Thread):
                 # 滤波幅度
                 amp_raw = amps[rx]
 
-                amp_filtered = self.vectorized_hampel_filter(amp_raw, window_size=11, n_sigmas=0.5)
+                amp_filtered = self.vectorized_hampel_filter(amp_raw, window_size=11, n_sigmas=3)
+                amplitude_data[:, rx, tx, :] = amp_filtered
                 # amp_filtered = amp_raw
-                phase_filtered = self.vectorized_hampel_filter(reconstructed_phases[rx], window_size=11, n_sigmas=0.6)
+                phase_filtered = self.vectorized_hampel_filter(reconstructed_phases[rx], window_size=11, n_sigmas=3)
+                phase_data[:, rx, tx, :] = phase_filtered
                 # phase_filtered = reconstructed_phases[rx]
                 # 重建复数
-                final_complex[:, rx, tx, :] = amp_filtered * np.exp(1j * phase_filtered)
+                # final_complex[:, rx, tx, :] = amp_filtered * np.exp(1j * phase_filtered)
 
         # ======== Step 6: 写回 processed_csi_data ========
-        for rx in range(R):
-            for tx in range(T):
-                processed_csi_data[:, rx, tx, :subcarriers_to_process, 0] = np.real(final_complex[:, rx, tx, :])
-                processed_csi_data[:, rx, tx, :subcarriers_to_process, 1] = np.imag(final_complex[:, rx, tx, :])
+        # for rx in range(R):
+        #     for tx in range(T):
+        #         processed_csi_data[:, rx, tx, :subcarriers_to_process, 0] = np.real(final_complex[:, rx, tx, :])
+        #         processed_csi_data[:, rx, tx, :subcarriers_to_process, 1] = np.imag(final_complex[:, rx, tx, :])
 
-        return processed_csi_data
-    
+        return amplitude_data, phase_data
+
     def vectorized_hampel_filter(self, data, window_size=11, n_sigmas=0.6):
         """
         向量化的Hampel滤波器实现，用于提高处理速度

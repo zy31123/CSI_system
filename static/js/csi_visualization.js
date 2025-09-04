@@ -177,7 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '幅值'},
                     min: 0,
-                    max: 200
+                    max: 5
                 }
             }
         }
@@ -192,8 +192,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '相位(弧度)'},
-                    min: -Math.PI,
-                    max: Math.PI
+                    // min: -Math.PI+2,
+                    // max: Math.PI-2
+                    min: -0.5,
+                    max: 0.5
                 }
             }
         }
@@ -332,7 +334,7 @@ document.addEventListener('DOMContentLoaded', function() {
         
         const timeSpan = document.createElement('span');
         timeSpan.className = 'classification-time';
-        timeSpan.textContent = item.formatted_time || new Date(item.timestamp).toLocaleString();
+        timeSpan.textContent = item.formatted_time || new Date(item.send_time* 1000).toLocaleString();
         
         const resultDiv = document.createElement('div');
         resultDiv.className = 'classification-result';
@@ -439,7 +441,13 @@ document.addEventListener('DOMContentLoaded', function() {
             dataPointCount++;
             
             // 更新图表数据
-            const timestamp = new Date(data.timestamp || Date.now()).toLocaleTimeString();
+            // 修复时间戳问题，确保使用有效的时间
+            let timestamp;
+            if (data.send_time && data.send_time > 0) {
+                timestamp = new Date(data.send_time*1000).toLocaleTimeString();
+            } else {
+                timestamp = new Date().toLocaleTimeString();
+            }
             
             // 更新幅值图表
             if (currentAmplitude !== undefined) {
