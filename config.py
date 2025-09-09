@@ -18,7 +18,9 @@ CSI_CONTROL_CHANNEL = 'csi_control'         # Control commands channel
 
 # System configuration
 MAX_QUEUE_LENGTH = 1000     # Maximum Redis queue length
-WINDOW_SIZE = 10           # Processing window size (number of packets)
+WINDOW_SIZE = 20           # Processing window size (number of packets)
 WINDOW_OVERLAP = 5         # Window overlap size (number of packets)
 PORT = 4145                 # TCP port for CSI data reception
 PACKET_RATE = 100           # Packet processing rate (packets per second)
+NETWORK_SIZE = 400
+NETWORK_OVERLAP = 300

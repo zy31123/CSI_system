@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const startTime = new Date();
     
     // 配置参数
-    let MAX_DATA_POINTS = 100;
+    let MAX_DATA_POINTS = 200;
     let dataPointCount = 0;
     let isRunning = true;
     let selectedSubcarrier = 0;
@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const packetRateCtx = document.getElementById('packetRateChart').getContext('2d');
     const queueLengthCtx = document.getElementById('queueLengthChart').getContext('2d');
     
-    // 数据存储
+    // 图表数据结构 - 保持114个子载波的显示，移除不必要的历史数据存储
     const amplitudeData = {
         labels: Array(MAX_DATA_POINTS).fill(''),
         datasets: [{
@@ -74,8 +74,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }]
     };
     
-    // SNR数据已移除
-    
+    // 频谱图数据 - 为114个子载波准备
     const spectrumData = {
         labels: Array.from({length: 114}, (_, i) => i),
         datasets: [{
@@ -177,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '幅值'},
                     min: 0,
-                    max: 5
+                    max: 4
                 }
             }
         }
@@ -194,8 +193,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     title: {display: true, text: '相位(弧度)'},
                     // min: -Math.PI+2,
                     // max: Math.PI-2
-                    min: -0.5,
-                    max: 0.5
+                    min: -2.5,
+                    max: 2.5
                 }
             }
         }
@@ -212,7 +211,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: {
                     ...barChartOptions.scales.y,
                     min: 0,
-                    max: 100
+                    max: 5
                 }
             }
         }
@@ -371,7 +370,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = JSON.parse(dataStr);
             
             // 保存最新收到的数据，以便切换子载波或天线时使用
-            lastReceivedData = data;
+            const lastReceivedData = data;
             
             // 调试输出
             console.log('收到CSI数据:', {
@@ -379,7 +378,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 type: data.type,
                 has_amplitude_data: !!data.amplitude_data,
                 has_phase_data: !!data.phase_data,
-                has_subcarrier_data: !!data.subcarrier_data,
+                has_subcarrier_data: !!data.subcarriers_data,
                 has_classification: !!data.classification
             });
             
@@ -387,8 +386,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (data.type === 'classification_result') {
                 // 处理分类结果
                 const classificationData = {
-                    timestamp: data.timestamp,
-                    formatted_time: new Date(data.timestamp).toLocaleString(),
+                    timestamp: data.send_time,
+                    formatted_time: new Date(data.send_time*1000).toLocaleString(),
                     classification: data.classification,
                     confidence: data.confidence,
                     message: `识别结果: ${data.classification}`
@@ -423,7 +422,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 currentPhase = data.phase_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
                 console.log(`从phase_data提取的相位: ${currentPhase}`);
             }
-            
+
             // 记录幅值和相位值（不再更新DOM元素，因为它们已被删除）
             if (currentAmplitude !== undefined) {
                 console.log(`当前幅值: ${currentAmplitude.toFixed(2)}`);
@@ -436,7 +435,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 console.warn('无法获取当前相位数据');
             }
-            
+
             // 更新数据点计数
             dataPointCount++;
             
@@ -473,35 +472,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.warn("相位数据为undefined，跳过图表更新");
             }
             
-            // SNR图表更新已移除
-            
-            // 更新频谱图
-            // 优先使用subcarrier_data (已预处理的子载波数据)
-            if (data.subcarrier_data) {
+            // 更新频谱图 - 显示一个数据包的所有114个子载波
+            // 优先使用subcarriers_data (已预处理的子载波数据)
+            if (data.subcarriers_data) {
                 const key = `rx${selectedRxAntenna}_tx${selectedTxAntenna}`;
-                if (data.subcarrier_data[key]) {
-                    spectrumData.datasets[0].data = data.subcarrier_data[key];
-                    console.log(`使用subcarrier_data更新频谱图，选择的天线组合: ${key}`);
+                if (data.subcarriers_data[key]) {
+                    // 更新整个数据集，显示所有114个子载波
+                    spectrumData.datasets[0].data = data.subcarriers_data[key];
+                    console.log(`使用subcarriers_data更新频谱图，选择的天线组合: ${key}`);
                     spectrumChart.update();
                 } else {
-                    console.warn(`subcarrier_data中不存在键 ${key}`);
+                    console.warn(`subcarriers_data中不存在键 ${key}`);
                 }
-            }
-            // 如果没有subcarrier_data，但有magnitude_data，直接使用magnitude_data
-            else if (data.magnitude_data && Array.isArray(data.magnitude_data) && 
-                    data.magnitude_data.length > selectedRxAntenna &&
-                    data.magnitude_data[selectedRxAntenna].length > selectedTxAntenna) {
-                
-                // 直接从magnitude_data提取当前选择的RX/TX组合的所有子载波数据
-                spectrumData.datasets[0].data = data.magnitude_data[selectedRxAntenna][selectedTxAntenna];
-                console.log('使用magnitude_data更新频谱图');
+            } else if (data.amplitude_data) {
+                // 如果没有预处理的subcarriers_data，则从原始数据计算
+                // 这里显示所有114个子载波的幅值
+                const subcarrierData = [];
+                for (let i = 0; i < 114; i++) {
+                    if (data.amplitude_data[selectedRxAntenna] && 
+                        data.amplitude_data[selectedRxAntenna][selectedTxAntenna] && 
+                        data.amplitude_data[selectedRxAntenna][selectedTxAntenna][i] !== undefined) {
+                        subcarrierData.push(data.amplitude_data[selectedRxAntenna][selectedTxAntenna][i]);
+                    } else {
+                        // 如果某个子载波数据缺失，使用0填充
+                        subcarrierData.push(0);
+                    }
+                }
+                spectrumData.datasets[0].data = subcarrierData;
                 spectrumChart.update();
-            } else {
-                console.warn('无法更新频谱图，缺少子载波数据');
             }
-            
-            
-            
+
         } catch (error) {
             console.error('处理CSI数据出错:', error);
         }
@@ -543,48 +543,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     
     
-    // 存储上一次收到的数据以便在切换子载波或天线时重新使用
-    let lastReceivedData = null;
-    
     // 更新当前视图，根据选择的子载波和天线重新计算显示数据
     function updateCurrentView() {
-        if (!lastReceivedData) return;
-        
+        // 注意：由于我们每次只处理最新数据包，这里不再需要保存上次数据
         console.log(`更新视图: 子载波=${selectedSubcarrier}, RX=${selectedRxAntenna}, TX=${selectedTxAntenna}`);
-        
-        // 从上次接收的数据中提取当前选择的幅值
-        let currentAmplitude, currentPhase;
-        
-        if (lastReceivedData.amplitude_data && 
-            lastReceivedData.amplitude_data.length > selectedRxAntenna &&
-            lastReceivedData.amplitude_data[selectedRxAntenna].length > selectedTxAntenna && 
-            lastReceivedData.amplitude_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-            
-            currentAmplitude = lastReceivedData.amplitude_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
-        }
-        
-        if (lastReceivedData.phase_data && 
-            lastReceivedData.phase_data.length > selectedRxAntenna &&
-            lastReceivedData.phase_data[selectedRxAntenna].length > selectedTxAntenna && 
-            lastReceivedData.phase_data[selectedRxAntenna][selectedTxAntenna].length > selectedSubcarrier) {
-            
-            currentPhase = lastReceivedData.phase_data[selectedRxAntenna][selectedTxAntenna][selectedSubcarrier];
-        }
-        
-        // 更新频谱图
-        // if (lastReceivedData.subcarrier_data) {
-        //     const key = `rx${selectedRxAntenna}_tx${selectedTxAntenna}`;
-        //     if (lastReceivedData.subcarrier_data[key]) {
-        //         spectrumData.datasets[0].data = lastReceivedData.subcarrier_data[key];
-        //         spectrumChart.update();
-        //     }
-        // } else if (lastReceivedData.magnitude_data && 
-        //            lastReceivedData.magnitude_data.length > selectedRxAntenna &&
-        //            lastReceivedData.magnitude_data[selectedRxAntenna].length > selectedTxAntenna) {
-            
-        //     spectrumData.datasets[0].data = lastReceivedData.magnitude_data[selectedRxAntenna][selectedTxAntenna];
-        //     spectrumChart.update();
-        // }
     }
     
     // 事件处理程序

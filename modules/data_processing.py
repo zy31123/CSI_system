@@ -163,7 +163,7 @@ class DataProcessingThread(threading.Thread):
         # amplitude_data_, phase_data_ = processor.do_process()
 
 
-        amplitude_data_,phase_data_ = self.process_csi_data(csi_maxtrix) # Shape: (num_signals, num_rx, num_tx, num_subcarriers, 2)
+        amplitude_data_,phase_data_,subcarriers_data_ = self.process_csi_data(csi_maxtrix) # Shape: (num_signals, num_rx, num_tx, num_subcarriers, 2)
         # amplitude_data_ = np.sqrt(np.square(csi_maxtrix[:, :, :, :, 0]) + np.square(csi_maxtrix[:, :, :, :, 1]))
         # amp_median = np.median(amplitude_data_, axis=0, keepdims=False)
         # phase_data_ = np.arctan2(csi_maxtrix[:, :, :, :, 1], csi_maxtrix[:, :, :, :, 0])
@@ -183,6 +183,7 @@ class DataProcessingThread(threading.Thread):
                     # 'csi_data': signal['csi_data'],  # Original CSI data
                     'amplitude_data': amplitude_data.tolist(),  # Filtered amplitude data
                     'phase_data': phase_data.tolist(),  # Filtered phase data
+                    'subcarriers_data': subcarriers_data_[i].tolist(),  # Filtered subcarriers data
                 }
                 
                 processed_data.append(processed_signal)
@@ -210,6 +211,8 @@ class DataProcessingThread(threading.Thread):
         # final_complex = np.zeros((N, R, T, subcarriers_to_process), dtype=complex)
         amplitude_data = np.zeros((N, R, T, subcarriers_to_process))
         phase_data = np.zeros((N, R, T, subcarriers_to_process))
+        # 得到CSI的频谱数据
+        subcarriers_data = np.zeros((N, R, T, subcarriers_to_process))
 
         # 天线索引
         r0, r1, r2 = 0, 1, 2
@@ -229,6 +232,7 @@ class DataProcessingThread(threading.Thread):
                 ref_csi = np.where(ref_csi == 0, 1e-6, ref_csi)
                 
                 amp = amp / (ref_csi + 1e-6)  # (N, R*T, K)
+                subcarriers_data[:, idx, tx, :] = amp
 
                 # ref_subcarrier_idx = 28
                 # # 添加安全检查，避免除以零或极小值
@@ -243,7 +247,7 @@ class DataProcessingThread(threading.Thread):
                 #     amp[:,i] = amp[:,i] / amp[:,28]
 
                 pha = np.angle(csi_complex)
-                pha = np.unwrap(pha, axis=0)
+                # pha = np.unwrap(pha, axis=0)
                 # pha_detrended = detrend(pha_unwrapped, axis=0, type='linear')
                 amps[idx] = amp
                 phases[idx] = pha
@@ -255,14 +259,14 @@ class DataProcessingThread(threading.Thread):
             phi_r2_recon = phases[r2] - phases[r0]
 
             # 可选：对差分相位再次解缠（提高连续性）
-            phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
-            phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
-            phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
+            # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
+            # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
+            # phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
 
-            # # # # 去线性趋势
-            phi_r0_recon = detrend(phi_r0_recon, axis=0, type='linear')
-            phi_r1_recon = detrend(phi_r1_recon, axis=0, type='linear')
-            phi_r2_recon = detrend(phi_r2_recon, axis=0, type='linear')
+            # # # # # 去线性趋势
+            # phi_r0_recon = detrend(phi_r0_recon, axis=0, type='linear')
+            # phi_r1_recon = detrend(phi_r1_recon, axis=0, type='linear')
+            # phi_r2_recon = detrend(phi_r2_recon, axis=0, type='linear')
 
             # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
             # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
@@ -275,10 +279,10 @@ class DataProcessingThread(threading.Thread):
                 # 滤波幅度
                 amp_raw = amps[rx]
 
-                amp_filtered = self.vectorized_hampel_filter(amp_raw, window_size=11, n_sigmas=3)
+                amp_filtered = self.vectorized_hampel_filter(amp_raw, window_size=11, n_sigmas=0.5)
                 amplitude_data[:, rx, tx, :] = amp_filtered
                 # amp_filtered = amp_raw
-                phase_filtered = self.vectorized_hampel_filter(reconstructed_phases[rx], window_size=11, n_sigmas=3)
+                phase_filtered = self.vectorized_hampel_filter(reconstructed_phases[rx], window_size=11, n_sigmas=0.5)
                 phase_data[:, rx, tx, :] = phase_filtered
                 # phase_filtered = reconstructed_phases[rx]
                 # 重建复数
@@ -290,7 +294,7 @@ class DataProcessingThread(threading.Thread):
         #         processed_csi_data[:, rx, tx, :subcarriers_to_process, 0] = np.real(final_complex[:, rx, tx, :])
         #         processed_csi_data[:, rx, tx, :subcarriers_to_process, 1] = np.imag(final_complex[:, rx, tx, :])
 
-        return amplitude_data, phase_data
+        return amplitude_data, phase_data, subcarriers_data
 
     def vectorized_hampel_filter(self, data, window_size=11, n_sigmas=0.6):
         """

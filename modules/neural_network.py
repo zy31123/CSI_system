@@ -15,7 +15,7 @@ import os
 
 from config import (
     REDIS_HOST, REDIS_PORT, CSI_PROCESSED_QUEUE, 
-    CSI_VISUALIZATION_CHANNEL, MAX_QUEUE_LENGTH, WINDOW_SIZE
+    CSI_VISUALIZATION_CHANNEL, MAX_QUEUE_LENGTH, WINDOW_SIZE, NETWORK_SIZE, NETWORK_OVERLAP
 )
 
 # Global variables
@@ -31,6 +31,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
         super().__init__(name="NeuralNetworkInferenceThread")
         self.model = None
         self.buffer = []
+        self.previous_batch = []
         self.load_model()
         
     def load_model(self):
@@ -64,19 +65,19 @@ class NeuralNetworkInferenceThread(threading.Thread):
                 queue_length = redis_client.llen(CSI_PROCESSED_QUEUE)
                 
                 # Process data in batches
-                batch_size = 400
-                if queue_length >= batch_size:
+                batch_size = NETWORK_SIZE
+
+                if queue_length >= batch_size - len(self.previous_batch):
                     # Get a batch of processed data
-                    batch_data = []
-                    for _ in range(batch_size):
+                    batch_data = self.previous_batch.copy()
+                    for _ in range(batch_size - len(self.previous_batch)):
                         data = redis_client.rpop(CSI_PROCESSED_QUEUE)
                         if data:
                             batch_data.append(data)
-                    
+                    self.previous_batch = batch_data[-NETWORK_OVERLAP:]
                     # Process the batch
                     if batch_data:
-                        results = self._process_batch(batch_data)
-                        result = results[-1] if results else None
+                        result = self._process_batch(batch_data)
                         
                         # Publish results to visualization channel for real-time updates
                         # for result in results:
@@ -139,7 +140,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
             }
             results.append(result)
         
-        return results
+        return results[-1]
     
     def _format_classification(self, prediction):
         """Format prediction result as a classification label"""
@@ -155,7 +156,7 @@ class NeuralNetworkInferenceThread(threading.Thread):
             class_idx = 0
             
         # Map index to label
-        labels = ['Class A', 'Class B']  # Replace with your actual labels
+        labels = ['跌倒', '其他']  # Replace with your actual labels
         return labels[class_idx] if class_idx < len(labels) else f'Class {class_idx}'
     
     def _prepare_input(self, parsed_data):

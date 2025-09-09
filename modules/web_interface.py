@@ -258,7 +258,7 @@ def redis_csi_listener():
                     
                 # Optimize sending logic: Ensure sending frequency isn't too high causing browser lag
                 current_time = time.time()
-                if current_time - last_emit_time >= 0.1:  # Max 100ms per send
+                if current_time - last_emit_time >= 0.01:  # Max 50ms per send
                     socketio.emit('csi_data', json.dumps(parsed_data))
                     last_emit_time = current_time
 
