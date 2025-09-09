@@ -227,7 +227,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '包/秒'},
                     min: 0,
-                    max: 500
+                    max: 200
                 }
             }
         }
@@ -243,7 +243,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '队列长度'},
                     min: 0,
-                    max: 1000
+                    max: 200
                 }
             }
         }

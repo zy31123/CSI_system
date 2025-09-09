@@ -12,7 +12,7 @@ import redis
 from threading import Event
 from collections import deque
 from modules.csi_pre_processing1 import CSIProcessor
-from scipy.signal import detrend
+from scipy.signal import detrend, medfilt2d
 
 from config import (
     REDIS_HOST, REDIS_PORT, CSI_SOURCE_QUEUE, CSI_PROCESSED_QUEUE, 
@@ -214,79 +214,60 @@ class DataProcessingThread(threading.Thread):
         # 得到CSI的频谱数据
         subcarriers_data = np.zeros((N, R, T, subcarriers_to_process))
 
-        # 天线索引
-        r0, r1, r2 = 0, 1, 2
+        # ======== Step 1: 提取并预处理每个天线的原始相位 ========
+        # 将csi_data转换为复数形式，形状为(N, R, T, M)
+        csi_complex = csi_data[..., 0] + 1j * csi_data[..., 1]
+        
+        # 计算幅度，形状为(N, R, T, M)
+        amps = np.abs(csi_complex)
+        
+        # 参考子载波索引
+        ref_subcarrier_idx = 28
+        
+        # 向量化归一化：使用广播机制 (N, R, T, M) / (N, R, T, 1)
+        ref_csi = amps[:, :, :, ref_subcarrier_idx:ref_subcarrier_idx+1]
+        ref_csi = np.where(ref_csi == 0, 1e-6, ref_csi)
+        amps = amps / (ref_csi + 1e-6)
+        
+        # 提取前56个子载波
+        amps = amps[:, :, :, :subcarriers_to_process]
+        subcarriers_data = amps.copy()
+        
+        # 计算相位，形状为(N, R, T, M)
+        phases = np.angle(csi_complex)
+        phases = phases[:, :, :, :subcarriers_to_process]
 
-        for tx in range(T):
-            # ======== Step 1: 提取并预处理每个天线的原始相位 ========
-            phases = np.zeros((R, N, subcarriers_to_process))
-            amps = np.zeros((R, N, subcarriers_to_process))
+        # ======== Step 2: 构造环形差分（闭环）========
+        # Δ01 = φ0 - φ1, Δ12 = φ1 - φ2, Δ20 = φ2 - φ0
+        # 使用向量化操作计算所有发射天线的环形差分
+        # 直接在原始维度上操作 (N, R, T, M)
+        phi_r0_recon = phases[:, 0, :, :] - phases[:, 1, :, :]  # (N, T, M)
+        phi_r1_recon = phases[:, 1, :, :] - phases[:, 2, :, :]  # (N, T, M)
+        phi_r2_recon = phases[:, 2, :, :] - phases[:, 0, :, :]  # (N, T, M)
 
-            for idx in range(R):
-                csi_slice = csi_data[:, idx, tx, :subcarriers_to_process, :]
-                csi_complex = csi_slice[..., 0] + 1j * csi_slice[..., 1]
-                amp = np.abs(csi_complex)
+        # ======== Step 3: 重构相位 ========
+        # 重构所有天线的相位（基于 r0 为虚拟参考）
+        # 这里我们直接使用差分相位作为重构相位
+        
+        # 重新排列差分相位为 (R, N, T, M) 格式
+        reconstructed_phases = np.stack([phi_r0_recon, phi_r1_recon, phi_r2_recon], axis=1)  # (N, R, T, M)
 
-                ref_subcarrier_idx = 28  # 选择第29个子载波作为参考
-                ref_csi = amp[:, ref_subcarrier_idx:ref_subcarrier_idx+1]  # (N, R*T, 1)
-                ref_csi = np.where(ref_csi == 0, 1e-6, ref_csi)
-                
-                amp = amp / (ref_csi + 1e-6)  # (N, R*T, K)
-                subcarriers_data[:, idx, tx, :] = amp
-
-                # ref_subcarrier_idx = 28
-                # # 添加安全检查，避免除以零或极小值
-                # ref_amp = amp[:, [ref_subcarrier_idx]]
-                # # 设置一个最小阈值，避免除以过小的值
-                # ref_amp = np.where(ref_amp < 1e-10, 1e-10, ref_amp)
-                # amp = amp / ref_amp
-
-                # amp = amp / amp[:, [28]]
-                # amp = amp / amp[:, [28]]  # 归一化，除以参考子载波
-                # for i in range(amp.shape[1]):
-                #     amp[:,i] = amp[:,i] / amp[:,28]
-
-                pha = np.angle(csi_complex)
-                # pha = np.unwrap(pha, axis=0)
-                # pha_detrended = detrend(pha_unwrapped, axis=0, type='linear')
-                amps[idx] = amp
-                phases[idx] = pha
-
-            # ======== Step 2: 构造环形差分（闭环）========
-            # Δ01 = φ0 - φ1, Δ12 = φ1 - φ2, Δ20 = φ2 - φ0
-            phi_r0_recon = phases[r0] - phases[r1]  # (N, M)
-            phi_r1_recon = phases[r1] - phases[r2]
-            phi_r2_recon = phases[r2] - phases[r0]
-
-            # 可选：对差分相位再次解缠（提高连续性）
-            # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
-            # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
-            # phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
-
-            # # # # # 去线性趋势
-            # phi_r0_recon = detrend(phi_r0_recon, axis=0, type='linear')
-            # phi_r1_recon = detrend(phi_r1_recon, axis=0, type='linear')
-            # phi_r2_recon = detrend(phi_r2_recon, axis=0, type='linear')
-
-            # phi_r0_recon = np.unwrap(phi_r0_recon, axis=0)
-            # phi_r1_recon = np.unwrap(phi_r1_recon, axis=0)
-            # phi_r2_recon = np.unwrap(phi_r2_recon, axis=0)
-
-            reconstructed_phases = [phi_r0_recon, phi_r1_recon, phi_r2_recon]
-
-            # ======== Step 5: 幅度滤波 + 重建复数 CSI ========
-            for rx in range(R):
-                # 滤波幅度
-                amp_raw = amps[rx]
-
-                amp_filtered = self.vectorized_hampel_filter(amp_raw, window_size=11, n_sigmas=0.5)
-                amplitude_data[:, rx, tx, :] = amp_filtered
-                # amp_filtered = amp_raw
-                phase_filtered = self.vectorized_hampel_filter(reconstructed_phases[rx], window_size=11, n_sigmas=0.5)
-                phase_data[:, rx, tx, :] = phase_filtered
-                # phase_filtered = reconstructed_phases[rx]
-                # 重建复数
-                # final_complex[:, rx, tx, :] = amp_filtered * np.exp(1j * phase_filtered)
+        # ======== Step 4: 幅度滤波 ========
+        # 向量化Hampel滤波处理所有发射天线
+        # 重塑amps为 (N*R*T, M) 以适应滤波器
+        amps_reshaped = amps.reshape(N, -1)  # (N*R*T, M)
+        amps_filtered = self.vectorized_hampel_filter(amps_reshaped, window_size=11, n_sigmas=0.5)
+        # 恢复形状 (N, R, T, M)
+        amps_filtered = amps_filtered.reshape(N, R, T, subcarriers_to_process)
+        amplitude_data = amps_filtered
+        
+        # 向量化Hampel滤波处理所有重构相位
+        # 重塑reconstructed_phases为 (N*R*T, M) 以适应滤波器
+        phases_reshaped = reconstructed_phases.reshape(N, -1)  # (N*R*T, M)
+        phases_filtered = self.vectorized_hampel_filter(phases_reshaped, window_size=11, n_sigmas=0.5)
+        # 恢复形状 (N, R, T, M)
+        phases_filtered = phases_filtered.reshape(N, R, T, subcarriers_to_process)
+        phase_data = phases_filtered
 
         # ======== Step 6: 写回 processed_csi_data ========
         # for rx in range(R):
@@ -312,37 +293,25 @@ class DataProcessingThread(threading.Thread):
         if window_size % 2 == 0:
             window_size += 1
         
-        half_window = window_size // 2
-        n_packets, n_subcarriers = data.shape
-        filtered_data = np.copy(data)
+        # 使用scipy的medfilt2d进行更高效的中值滤波
+        # 先对数据进行中值滤波
+        median_filtered = medfilt2d(data, kernel_size=(window_size, 1))
         
-        # 创建一个数组来存储每个点的中位数和MAD
-        all_medians = np.zeros_like(data)
-        all_thresholds = np.zeros_like(data)
+        # 计算MAD (Median Absolute Deviation)
+        mad = np.median(np.abs(data - median_filtered), axis=0)
         
-        # 预计算每个点的中位数和MAD
-        for i in range(n_packets):
-            # 确定窗口范围
-            start_idx = max(0, i - half_window)
-            end_idx = min(n_packets, i + half_window + 1)
-            
-            # 获取窗口内的数据 (窗口大小, 子载波数)
-            window_data = data[start_idx:end_idx, :]
-            
-            # 计算中位数和MAD (Median Absolute Deviation)
-            median = np.median(window_data, axis=0)  # (子载波数,)
-            mad = np.median(np.abs(window_data - median), axis=0)  # (子载波数,)
-            
-            # 存储中位数和阈值
-            all_medians[i, :] = median
-            all_thresholds[i, :] = n_sigmas * 1.4826 * mad  # (子载波数,)
+        # 计算阈值
+        thresholds = n_sigmas * 1.4826 * mad
         
         # 检查每个点是否为异常值
-        diff = np.abs(data - all_medians)  # (数据包数, 子载波数)
-        outlier_mask = diff > all_thresholds  # (数据包数, 子载波数)
+        diff = np.abs(data - median_filtered)
+        outlier_mask = diff > thresholds
         
-        # 替换异常值为中位数
-        filtered_data[outlier_mask] = all_medians[outlier_mask]
+        # 创建过滤后的数据副本
+        filtered_data = np.copy(data)
+        
+        # 替换异常值为中值
+        filtered_data[outlier_mask] = median_filtered[outlier_mask]
         
         return filtered_data
 
