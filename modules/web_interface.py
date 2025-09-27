@@ -221,46 +221,35 @@ def redis_csi_listener():
                 if parsed_data.get('type') == 'classification_result':
                     # Get current classification result
                     current_result = {
-                        'timestamp': parsed_data.get('timestamp'),
-                        'formatted_time': parsed_data.get('formatted_time', time.strftime("%Y-%m-%d %H:%M:%S")),
+                        'timestamp': parsed_data.get('send_time'),  # 使用send_time作为时间戳
+                        'formatted_time': time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(parsed_data.get('send_time'))),
                         'classification': parsed_data.get('classification'),
                         'confidence': parsed_data.get('confidence'),
                         'message': parsed_data.get('message', f"Classification result: {parsed_data.get('classification')}")
                     }
                     
-                    # Check if it's a duplicate record (avoid duplicate display)
-                    is_duplicate = False
-                    if classification_history:
-                        last_record = classification_history[-1]
-                        # Check if classification result and confidence are the same
-                        if (last_record.get('classification') == current_result.get('classification') and
-                            last_record.get('confidence') == current_result.get('confidence')):
-                            is_duplicate = True
-                            print(f"Skipping duplicate classification result: {current_result.get('classification')}")
+                    # 不再过滤重复记录，显示所有分类结果
+                    # Save to history
+                    if len(classification_history) >= MAX_HISTORY_SIZE:
+                        classification_history.pop(0)  # Remove oldest record
                     
-                    # Save and send if not duplicate
-                    if not is_duplicate:
-                        # Save to history
-                        if len(classification_history) >= MAX_HISTORY_SIZE:
-                            classification_history.pop(0)  # Remove oldest record
-                        
-                        classification_history.append(current_result)
-                        
-                        # Send to frontend
-                        socketio.emit('classification_result', json.dumps(parsed_data))
-                        # print(f"Forwarded classification result: {parsed_data.get('classification')}, confidence: {parsed_data.get('confidence')}")
+                    classification_history.append(current_result)
+                    
+                    # Send to frontend
+                    socketio.emit('classification_result', json.dumps(parsed_data))
+                    # print(f"Forwarded classification result: {parsed_data.get('classification')}, confidence: {parsed_data.get('confidence'):.4f}")
                     
                     continue
                 
-                # Add timestamp if missing
-                if 'timestamp' not in parsed_data:
-                    parsed_data['timestamp'] = int(time.time() * 1000)
-                    
-                # Optimize sending logic: Ensure sending frequency isn't too high causing browser lag
+                # For non-classification messages, send with rate limiting to prevent browser lag
                 current_time = time.time()
-                if current_time - last_emit_time >= 0.01:  # Max 50ms per send
+                # Allow sending every 10ms (100Hz max) to prevent overwhelming the browser
+                if current_time - last_emit_time >= 0.01:  # 10ms minimum interval
                     socketio.emit('csi_data', json.dumps(parsed_data))
                     last_emit_time = current_time
+                    # print(f"Forwarded CSI data message")
+                # else:
+                #     print("Skipping CSI data message due to rate limiting")
 
             except Exception as e:
                 print(f"Error processing CSI message: {e}")
@@ -332,7 +321,7 @@ def main():
     
     # Start SocketIO server
     print(f"CSI visualization server starting at http://localhost:{PORT}")
-    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, use_reloader=False)
+    socketio.run(app, host='0.0.0.0', port=PORT, debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
 
 if __name__ == '__main__':
     main()

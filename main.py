@@ -18,7 +18,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from config import PORT, REDIS_HOST, REDIS_PORT
 from modules.data_reception import DataReceptionThread, signal_handler
 from modules.data_processing import DataProcessingThread
-from modules.neural_network import NeuralNetworkInferenceThread
+
 
 class CSIMainApplication:
     """Main application class to coordinate all CSI processing components"""
@@ -26,7 +26,7 @@ class CSIMainApplication:
     def __init__(self):
         self.data_reception_thread = None
         self.data_processing_thread = None
-        self.nn_inference_thread = None
+        self.nn_inference_process = None
         self.web_server_process = None
         self.running = False
         
@@ -45,10 +45,9 @@ class CSIMainApplication:
             self.data_processing_thread.start()
             print("Data processing thread started")
             
-            # Start neural network inference thread
-            self.nn_inference_thread = NeuralNetworkInferenceThread()
-            self.nn_inference_thread.start()
-            print("Neural network inference thread started")
+            # Start neural network inference as a separate process
+            # self._start_neural_network_process()
+            # print("Neural network inference process started")
             
             # Start web interface server in a separate process
             self._start_web_server()
@@ -99,6 +98,34 @@ class CSIMainApplication:
             for line in self.web_server_process.stdout:
                 print(f"[Web Server] {line.strip()}")
     
+    def _start_neural_network_process(self):
+        """Start the neural network inference as a separate process"""
+        try:
+            # Change to the project directory to ensure correct path resolution
+            project_dir = Path(__file__).parent
+            
+            # Start the neural network inference process
+            self.nn_inference_process = subprocess.Popen(
+                [sys.executable, "-m", "modules.neural_network_process"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+                cwd=project_dir
+            )
+            
+            # Start a thread to read and print neural network output
+            threading.Thread(target=self._read_neural_network_output, daemon=True).start()
+            
+        except Exception as e:
+            print(f"Error starting neural network process: {e}")
+
+    def _read_neural_network_output(self):
+        """Read and print neural network output"""
+        if self.nn_inference_process and self.nn_inference_process.stdout:
+            for line in self.nn_inference_process.stdout:
+                print(f"[Neural Network] {line.strip()}")
+
     def _signal_handler(self, sig, frame):
         """Handle interrupt signals for graceful shutdown"""
         print("\nReceived interrupt signal, stopping CSI processing system...")
@@ -124,13 +151,14 @@ class CSIMainApplication:
             self.data_processing_thread.join(timeout=5)
             print("Data processing thread stopped")
         
-        # Stop neural network inference thread
-        if self.nn_inference_thread:
-            # Set stop event for neural network thread
-            import modules.neural_network as nn
-            nn.stop_event.set()
-            self.nn_inference_thread.join(timeout=5)
-            print("Neural network inference thread stopped")
+        # Stop neural network inference process
+        if self.nn_inference_process:
+            self.nn_inference_process.terminate()
+            try:
+                self.nn_inference_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.nn_inference_process.kill()
+            print("Neural network inference process stopped")
         
         # Stop web server process
         if self.web_server_process:

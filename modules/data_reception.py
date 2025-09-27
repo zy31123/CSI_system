@@ -168,20 +168,11 @@ class DataReceptionThread(threading.Thread):
             expected_size = CSI_DATA_SIZE
             if len(data) != expected_size:
                 raise ValueError(f"Packet size error: {len(data)} bytes, expected: {expected_size} bytes")
-            
-            # Extract send timestamp from first 8 bytes of packet (microseconds since Jan 1, 2025)
-            # Read 4 unsigned short values and combine into 64-bit timestamp
-            time_bytes = data[:8]
-            # Use '<H' to parse as unsigned short
-            timestamp_parts = [struct.unpack('<H', time_bytes[i:i+2])[0] for i in range(0, 8, 2)]
-            
-            # Combine timestamp using unsigned integers for bitwise operations
-            send_timestamp = ((timestamp_parts[0] & 0xFFFF) << 48) | \
-                            ((timestamp_parts[1] & 0xFFFF) << 32) | \
-                            ((timestamp_parts[2] & 0xFFFF) << 16) | \
-                            (timestamp_parts[3] & 0xFFFF)
 
-            send_timestamp = send_timestamp / 1_000_000.0
+            # 改进的时间戳解析方法
+            timestamp_parts = struct.unpack('<4H', data[:8])
+            send_timestamp = (timestamp_parts[0] << 48) | (timestamp_parts[1] << 32) | (timestamp_parts[2] << 16) | timestamp_parts[3]
+            send_timestamp = send_timestamp / 1_000_000.0  #
 
             # Calculate number of complex values
             num_complex = NUM_SUBCARRIERS * NUM_RX_ANTENNAS * NUM_TX_ANTENNAS

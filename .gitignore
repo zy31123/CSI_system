@@ -1,3 +1,9 @@
 data
-_pycache_
+__pycache__
 qt
+dataset_make
+logs
+.venv
+.idea
+model_para
+tar_models

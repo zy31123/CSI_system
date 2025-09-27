@@ -56,7 +56,8 @@ document.addEventListener('DOMContentLoaded', function() {
             borderWidth: 2,
             pointRadius: 1,
             tension: 0.4,
-            fill: true
+            fill: true,
+            spanGaps: true,
         }]
     };
     
@@ -175,8 +176,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '幅值'},
-                    min: 0,
-                    max: 4
+                    // min: 0,
+                    // max: 4
                 }
             }
         }
@@ -193,8 +194,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     title: {display: true, text: '相位(弧度)'},
                     // min: -Math.PI+2,
                     // max: Math.PI-2
-                    min: -2.5,
-                    max: 2.5
+                    // min: -2.5,
+                    // max: 2.5
                 }
             }
         }
@@ -210,8 +211,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 ...barChartOptions.scales,
                 y: {
                     ...barChartOptions.scales.y,
-                    min: 0,
-                    max: 5
+                    // min: 0,
+                    // max: 5
                 }
             }
         }
@@ -226,8 +227,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '包/秒'},
-                    min: 0,
-                    max: 200
+                    // min: 0,
+                    // max: 200
                 }
             }
         }
@@ -242,8 +243,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 y: {
                     ...lineChartOptions.scales.y, 
                     title: {display: true, text: '队列长度'},
-                    min: 0,
-                    max: 200
+                    // min: 0,
+                    // max: 200
                 }
             }
         }
@@ -274,6 +275,7 @@ document.addEventListener('DOMContentLoaded', function() {
     socket.on('classification_result', function(dataStr) {
         try {
             const data = JSON.parse(dataStr);
+            console.log('Received classification result:', data);
             addClassificationMessage(data);
         } catch (error) {
             console.error('解析分类结果出错:', error);
@@ -382,17 +384,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 has_classification: !!data.classification
             });
             
-            // 检查是否是分类结果
+            // 检查是否是分类结果 - 如果是分类结果，直接返回，让专门的事件处理器处理
             if (data.type === 'classification_result') {
-                // 处理分类结果
-                const classificationData = {
-                    timestamp: data.send_time,
-                    formatted_time: new Date(data.send_time*1000).toLocaleString(),
-                    classification: data.classification,
-                    confidence: data.confidence,
-                    message: `识别结果: ${data.classification}`
-                };
-                addClassificationMessage(classificationData);
+                console.log('CSI数据中包含分类结果，跳过处理，由专门的事件处理器处理');
                 return;
             }
             

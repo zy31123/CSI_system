@@ -502,40 +502,6 @@ class CSIProcessor:
             # 应用校正
             corrected = unwrapped_phase - (a * subcarrier_indices + b)
             calibrated_phase[t, :] = np.angle(np.exp(1j * corrected))
-            # # 步骤1: 计算斜率参数a（消除STO）
-            # # 使用第一个和最后一个子载波的相位和索引
-            # first_idx = 0
-            # last_idx = -1
-            
-            # phase_first = unwrapped_phase[first_idx]
-            # phase_last = unwrapped_phase[last_idx]
-            # index_first = subcarrier_indices[first_idx]
-            # index_last = subcarrier_indices[last_idx]
-            
-            # a = (phase_last - phase_first) / (index_last - index_first)
-            # a_values[t] = a
-
-            # # 步骤2: 计算截距参数b（消除CFO）
-            # b = np.mean(unwrapped_phase)
-            # b_values[t] = b
-            # # print(f"相位平均值 b = {b:.3f}")
-            
-            # # 步骤3: 应用线性校准
-            # for k in range(n_subcarriers):
-            #     calibrated_phase[t, k] = unwrapped_phase[k] - a * subcarrier_indices[k] - b
-            # # 可选：将校准后的相位折回[-π, π]范围
-            # calibrated_phase[t, :] = np.angle(np.exp(1j * calibrated_phase[t, :]))
-            # # print(f"校准后的相位: {calibrated_phase[t, :5]}...")
-
-            # # 最小二乘拟合一阶多项式：unwrapped ~= a * idx + b
-            # coeffs = np.polyfit(subcarrier_indices, unwrapped_phase, 1)
-            # a = coeffs[0]; b = coeffs[1]
-            # a_values[t] = a; b_values[t] = b
-            # corrected = unwrapped_phase - (a * subcarrier_indices + b)
-            # calibrated_phase[t, :] = np.angle(np.exp(1j * corrected))
-            # print(f"使用的子载波索引: {index_first} 和 {index_last}")
-            # print(f"对应相位值: {phase_first:.3f} 和 {phase_last:.3f}")
-            # print(f"计算得到的斜率 a = {a:.6f}")
 
         return calibrated_phase, a_values, b_values
 
@@ -648,9 +614,9 @@ class CSIProcessor:
     #     return np.concatenate([mean, std, skew, kurt, fft_features.flatten()])
     def do_process(self):
         # Step 1. 幅度 & 相位预处理
-        amplitude_data, phase_data = self.preprocess_csi_show()
+        amplitude_data, phase_data = self.preprocess_csi()
         T, rx_num, tx_num, sc_num = amplitude_data.shape
-        print(f"输入数据形状: {amplitude_data.shape}")
+        # print(f"输入数据形状: {amplitude_data.shape}")
             
             
         filtered_amplitude = np.zeros_like(amplitude_data)
@@ -675,7 +641,7 @@ class CSIProcessor:
                 filtered_amplitude[:, rx, tx, :] = filtered_spectrum
         
         # Step 5. 相位处理 & 滤波
-        print("进行相位校正 + Hampel 滤波...")
+        # print("进行相位校正 + Hampel 滤波...")
         phase_corrected_data = self.process_multiantenna_phase()
         # filtered_data_phase = self.clean_phase(phase_corrected_data, amp_data=filtered_amplitude)
         filtered_data_phase = np.zeros_like(phase_corrected_data)
@@ -702,6 +668,7 @@ class CSIProcessor:
         # segmented_features = self.segment_data(selected_features)
 
         return filtered_amplitude, filtered_data_phase
+    
     def do_extract_features(self):
         """
         从CSI数据中提取特征
